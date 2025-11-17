@@ -1,0 +1,11 @@
+todo - 
+- [x] game logic
+- [ ] interface
+    - [ ] basic
+    - [ ] tui - textual
+    - [ ] gui - pygame
+- [ ] solver
+    - [ ] heuristic
+    - [ ] csp
+- [ ] report
+- [ ] presentation

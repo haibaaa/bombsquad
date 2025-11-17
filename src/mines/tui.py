@@ -1,282 +1,323 @@
-"""Minesweeper TUI application using Textual."""
+"""Simple version of 5x5, developed for/with Textual."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from textual.app import App, ComposeResult
-from textual.widgets import Static, Label
-from textual.containers import Center, Vertical
+from textual.binding import Binding
+from textual.containers import Horizontal
+from textual.css.query import DOMQuery
 from textual.reactive import reactive
-from textual import events
-from rich.text import Text
-from rich.style import Style
+from textual.screen import Screen
+from textual.widget import Widget
+from textual.widgets import Button, Footer, Label, Markdown
 
-from src.mines.game import Minesweeper, CellState, GameStatus
-
-
-class GameBoard(Static):
-    """Reactive game board widget."""
-
-    cursor_row = reactive(0)
-    cursor_col = reactive(0)
-    game_state = reactive({})
-
-    def __init__(self, game: Minesweeper):
-        super().__init__()
-        self.game = game
-        self.update_game_state()
-
-    def update_game_state(self):
-        """Update the reactive game state."""
-        self.game_state = self.game.get_board_state()
-
-    def watch_cursor_row(self, old_value: int, new_value: int) -> None:
-        """React to cursor row changes."""
-        self.refresh()
-
-    def watch_cursor_col(self, old_value: int, new_value: int) -> None:
-        """React to cursor column changes."""
-        self.refresh()
-
-    def watch_game_state(self, old_value: dict, new_value: dict) -> None:
-        """React to game state changes."""
-        self.refresh()
-
-    def render(self) -> Text:
-        """Render the game board."""
-        text = Text()
-        cells = self.game_state.get("cells", [])
-
-        for r, row in enumerate(cells):
-            for c, cell in enumerate(row):
-                is_cursor = r == self.cursor_row and c == self.cursor_col
-                cell_text = self._render_cell(cell, is_cursor)
-                text.append(cell_text)
-                text.append(" ")
-            text.append("\n")
-
-        return text
-
-    def _render_cell(self, cell: dict, is_cursor: bool) -> Text:
-        """Render a single cell."""
-        state = cell["state"]
-        value = cell["value"]
-
-        # Pastel color palette
-        PASTEL_BLUE = "#AEC6CF"
-        PASTEL_GREEN = "#B2E0B2"
-        PASTEL_YELLOW = "#FFFACD"
-        PASTEL_ORANGE = "#FFD9B3"
-        PASTEL_RED = "#FFB3BA"
-        PASTEL_PURPLE = "#E0BBE4"
-        PASTEL_PINK = "#FFC0CB"
-        PASTEL_GRAY = "#D3D3D3"
-        PASTEL_DARK = "#B0B0B0"
-
-        # Number colors (progressively darker pastels)
-        number_colors = {
-            1: PASTEL_BLUE,
-            2: PASTEL_GREEN,
-            3: PASTEL_YELLOW,
-            4: PASTEL_ORANGE,
-            5: PASTEL_RED,
-            6: PASTEL_PURPLE,
-            7: PASTEL_PINK,
-            8: PASTEL_DARK,
-        }
-
-        if state == CellState.COVERED:
-            char = "▪"
-            color = PASTEL_GRAY
-        elif state == CellState.FLAGGED:
-            char = "F"
-            color = PASTEL_YELLOW
-        elif state == CellState.REVEALED_MINE:
-            char = "M"
-            color = PASTEL_RED
-        elif state == CellState.REVEALED_EMPTY:
-            char = " "
-            color = "white"
-        elif state == CellState.REVEALED_NUMBER:
-            char = str(value)
-            color = number_colors.get(value, "white")
-        else:
-            char = "?"
-            color = "white"
-
-        # Add cursor highlight
-        if is_cursor:
-            style = Style(color=color, bold=True, reverse=True)
-        else:
-            style = Style(color=color)
-
-        return Text(char, style=style)
+if TYPE_CHECKING:
+    from typing_extensions import Final
 
 
-class StatusBar(Static):
-    """Status bar showing game information."""
+class Help(Screen):
+    """The help screen for the application."""
 
-    status_text = reactive("")
-
-    def watch_status_text(self, old_value: str, new_value: str) -> None:
-        """React to status text changes."""
-        self.update(new_value)
-
-
-class MinesweeperApp(App):
-    """Minesweeper TUI application."""
-
-    CSS = """
-    Screen {
-        align: center middle;
-        background: #1a1a2e;
-    }
-    
-    #game_container {
-        width: auto;
-        height: auto;
-        padding: 2;
-    }
-    
-    GameBoard {
-        width: auto;
-        height: auto;
-        background: #16213e;
-        padding: 1;
-        border: solid #AEC6CF;
-    }
-    
-    StatusBar {
-        width: 100%;
-        height: 3;
-        background: #0f3460;
-        color: #AEC6CF;
-        text-align: center;
-        padding: 1;
-    }
-    
-    #message_overlay {
-        width: 50;
-        height: 10;
-        background: #16213e;
-        border: thick #FFB3BA;
-        color: #FFD9B3;
-        text-align: center;
-        padding: 2;
-    }
-    """
-
-    BINDINGS = [
-        ("w", "move_up", "Move Up"),
-        ("s", "move_down", "Move Down"),
-        ("a", "move_left", "Move Left"),
-        ("d", "move_right", "Move Right"),
-        ("e", "reveal", "Reveal"),
-        ("c", "flag", "Flag"),
-        ("q", "quit", "Quit"),
-    ]
-
-    def __init__(self, rows: int = 10, cols: int = 10, mines: int = 15):
-        super().__init__()
-        self.game = Minesweeper(rows, cols, mines)
-        self.game_board = None
-        self.status_bar = None
-        self.message_overlay = None
+    BINDINGS = [("escape,space,q,question_mark", "app.pop_screen", "Close")]
+    """Bindings for the help screen."""
 
     def compose(self) -> ComposeResult:
-        """Compose the UI."""
-        with Vertical(id="game_container"):
-            self.game_board = GameBoard(self.game)
-            yield Center(self.game_board)
-            self.status_bar = StatusBar(id="status_bar")
-            yield self.status_bar
+        """Compose the game's help.
 
-        self._update_status()
+        Returns:
+            ComposeResult: The result of composing the help screen.
+        """
+        yield Markdown(Path(__file__).with_suffix(".md").read_text())
 
-    def _update_status(self) -> None:
-        """Update the status bar."""
-        if self.status_bar:
-            flags_used = sum(
-                sum(1 for flagged in row if flagged) for row in self.game.flagged
-            )
-            status = self.game.get_status()
 
-            if status == GameStatus.PLAYING:
-                self.status_bar.status_text = (
-                    f"Mines: {self.game.mines} | Flags: {flags_used} | "
-                    f"Controls: WASD=Move E=Reveal C=Flag Q=Quit"
+class WinnerMessage(Label):
+    """Widget to tell the user they have won."""
+
+    MIN_MOVES: Final = 14
+    """int: The minimum number of moves you can solve the puzzle in."""
+
+    @staticmethod
+    def _plural(value: int) -> str:
+        return "" if value == 1 else "s"
+
+    def show(self, moves: int) -> None:
+        """Show the winner message.
+
+        Args:
+            moves (int): The number of moves required to win.
+        """
+        self.update(
+            "W I N N E R !\n\n\n"
+            f"You solved the puzzle in {moves} move{self._plural(moves)}."
+            + (
+                (
+                    f" It is possible to solve the puzzle in {self.MIN_MOVES}, "
+                    f"you were {moves - self.MIN_MOVES} move{self._plural(moves - self.MIN_MOVES)} over."
                 )
-            elif status == GameStatus.WON:
-                self.status_bar.status_text = "🎉 YOU WIN! Press Q to quit."
-            elif status == GameStatus.LOST:
-                self.status_bar.status_text = "💣 GAME OVER! Press Q to quit."
-
-    def _show_message(self, message: str) -> None:
-        """Show a message overlay."""
-        if self.message_overlay:
-            self.message_overlay.remove()
-
-        self.message_overlay = Static(message, id="message_overlay")
-        self.mount(Center(self.message_overlay))
-
-    def action_move_up(self) -> None:
-        """Move cursor up."""
-        if self.game.is_game_over():
-            return
-        self.game_board.cursor_row = max(0, self.game_board.cursor_row - 1)
-
-    def action_move_down(self) -> None:
-        """Move cursor down."""
-        if self.game.is_game_over():
-            return
-        self.game_board.cursor_row = min(
-            self.game.rows - 1, self.game_board.cursor_row + 1
+                if moves > self.MIN_MOVES
+                else " Well done! That's the minimum number of moves to solve the puzzle!"
+            )
         )
+        self.add_class("visible")
 
-    def action_move_left(self) -> None:
-        """Move cursor left."""
-        if self.game.is_game_over():
-            return
-        self.game_board.cursor_col = max(0, self.game_board.cursor_col - 1)
-
-    def action_move_right(self) -> None:
-        """Move cursor right."""
-        if self.game.is_game_over():
-            return
-        self.game_board.cursor_col = min(
-            self.game.cols - 1, self.game_board.cursor_col + 1
-        )
-
-    def action_reveal(self) -> None:
-        """Reveal the current cell."""
-        if self.game.is_game_over():
-            return
-
-        row, col = self.game_board.cursor_row, self.game_board.cursor_col
-        result = self.game.reveal(row, col)
-
-        self.game_board.update_game_state()
-        self._update_status()
-
-        if self.game.get_status() == GameStatus.LOST:
-            self._show_message("💣 GAME OVER!\nYou hit a mine!\n\nPress Q to quit")
-        elif self.game.get_status() == GameStatus.WON:
-            self._show_message("🎉 CONGRATULATIONS!\nYou won!\n\nPress Q to quit")
-
-    def action_flag(self) -> None:
-        """Toggle flag on the current cell."""
-        if self.game.is_game_over():
-            return
-
-        row, col = self.game_board.cursor_row, self.game_board.cursor_col
-        self.game.flag(row, col)
-
-        self.game_board.update_game_state()
-        self._update_status()
+    def hide(self) -> None:
+        """Hide the winner message."""
+        self.remove_class("visible")
 
 
-def main():
-    """Run the application."""
-    app = MinesweeperApp(rows=10, cols=10, mines=15)
-    app.run()
+class GameHeader(Widget):
+    """Header for the game.
+
+    Comprises of the title (``#app-title``), the number of moves ``#moves``
+    and the count of how many cells are turned on (``#progress``).
+    """
+
+    moves = reactive(0)
+    """int: Keep track of how many moves the player has made."""
+
+    filled = reactive(0)
+    """int: Keep track of how many cells are filled."""
+
+    def compose(self) -> ComposeResult:
+        """Compose the game header.
+
+        Returns:
+            ComposeResult: The result of composing the game header.
+        """
+        with Horizontal():
+            yield Label(self.app.title, id="app-title")
+            yield Label(id="moves")
+            yield Label(id="progress")
+
+    def watch_moves(self, moves: int):
+        """Watch the moves reactive and update when it changes.
+
+        Args:
+            moves (int): The number of moves made.
+        """
+        self.query_one("#moves", Label).update(f"Moves: {moves}")
+
+    def watch_filled(self, filled: int):
+        """Watch the on-count reactive and update when it changes.
+
+        Args:
+            filled (int): The number of cells that are currently on.
+        """
+        self.query_one("#progress", Label).update(f"Filled: {filled}")
+
+
+class GameCell(Button):
+    """Individual playable cell in the game."""
+
+    @staticmethod
+    def at(row: int, col: int) -> str:
+        """Get the ID of the cell at the given location.
+
+        Args:
+            row (int): The row of the cell.
+            col (int): The column of the cell.
+
+        Returns:
+            str: A string ID for the cell.
+        """
+        return f"cell-{row}-{col}"
+
+    def __init__(self, row: int, col: int) -> None:
+        """Initialise the game cell.
+
+        Args:
+            row (int): The row of the cell.
+            col (int): The column of the cell.
+        """
+        super().__init__("", id=self.at(row, col))
+        self.row = row
+        self.col = col
+
+
+class GameGrid(Widget):
+    """The main playable grid of game cells."""
+
+    def compose(self) -> ComposeResult:
+        """Compose the game grid.
+
+        Returns:
+            ComposeResult: The result of composing the game grid.
+        """
+        for row in range(Game.SIZE):
+            for col in range(Game.SIZE):
+                yield GameCell(row, col)
+
+
+class Game(Screen):
+    """Main 5x5 game grid screen."""
+
+    SIZE: Final = 5
+    """The size of the game grid. Clue's in the name really."""
+
+    BINDINGS = [
+        Binding("n", "new_game", "New Game"),
+        Binding("question_mark", "app.push_screen('help')", "Help", key_display="?"),
+        Binding("q", "app.quit", "Quit"),
+        Binding("up,w,k", "navigate(-1,0)", "Move Up", False),
+        Binding("down,s,j", "navigate(1,0)", "Move Down", False),
+        Binding("left,a,h", "navigate(0,-1)", "Move Left", False),
+        Binding("right,d,l", "navigate(0,1)", "Move Right", False),
+        Binding("space", "move", "Toggle", False),
+    ]
+    """The bindings for the main game grid."""
+
+    @property
+    def filled_cells(self) -> DOMQuery[GameCell]:
+        """DOMQuery[GameCell]: The collection of cells that are currently turned on."""
+        return cast(DOMQuery[GameCell], self.query("GameCell.filled"))
+
+    @property
+    def filled_count(self) -> int:
+        """int: The number of cells that are currently filled."""
+        return len(self.filled_cells)
+
+    @property
+    def all_filled(self) -> bool:
+        """bool: Are all the cells filled?"""
+        return self.filled_count == self.SIZE * self.SIZE
+
+    def game_playable(self, playable: bool) -> None:
+        """Mark the game as playable, or not.
+
+        Args:
+            playable (bool): Should the game currently be playable?
+        """
+        self.query_one(GameGrid).disabled = not playable
+
+    def cell(self, row: int, col: int) -> GameCell:
+        """Get the cell at a given location.
+
+        Args:
+            row (int): The row of the cell to get.
+            col (int): The column of the cell to get.
+
+        Returns:
+            GameCell: The cell at that location.
+        """
+        return self.query_one(f"#{GameCell.at(row,col)}", GameCell)
+
+    def compose(self) -> ComposeResult:
+        """Compose the game screen.
+
+        Returns:
+            ComposeResult: The result of composing the game screen.
+        """
+        yield GameHeader()
+        yield GameGrid()
+        yield Footer()
+        yield WinnerMessage()
+
+    def toggle_cell(self, row: int, col: int) -> None:
+        """Toggle an individual cell, but only if it's in bounds.
+
+        If the row and column would place the cell out of bounds for the
+        game grid, this function call is a no-op. That is, it's safe to call
+        it with an invalid cell coordinate.
+
+        Args:
+            row (int): The row of the cell to toggle.
+            col (int): The column of the cell to toggle.
+        """
+        if 0 <= row <= (self.SIZE - 1) and 0 <= col <= (self.SIZE - 1):
+            self.cell(row, col).toggle_class("filled")
+
+    _PATTERN: Final = (-1, 1, 0, 0, 0)
+
+    def toggle_cells(self, cell: GameCell) -> None:
+        """Toggle a 5x5 pattern around the given cell.
+
+        Args:
+            cell (GameCell): The cell to toggle the cells around.
+        """
+        for row, col in zip(self._PATTERN, reversed(self._PATTERN)):
+            self.toggle_cell(cell.row + row, cell.col + col)
+        self.query_one(GameHeader).filled = self.filled_count
+
+    def make_move_on(self, cell: GameCell) -> None:
+        """Make a move on the given cell.
+
+        All relevant cells around the given cell are toggled as per the
+        game's rules.
+
+        Args:
+            cell (GameCell): The cell to make a move on
+        """
+        self.toggle_cells(cell)
+        self.query_one(GameHeader).moves += 1
+        if self.all_filled:
+            self.query_one(WinnerMessage).show(self.query_one(GameHeader).moves)
+            self.game_playable(False)
+
+    def on_button_pressed(self, event: GameCell.Pressed) -> None:
+        """React to a press of a button on the game grid.
+
+        Args:
+            event (GameCell.Pressed): The event to react to.
+        """
+        self.make_move_on(cast(GameCell, event.button))
+
+    def action_new_game(self) -> None:
+        """Start a new game."""
+        self.query_one(GameHeader).moves = 0
+        self.filled_cells.remove_class("filled")
+        self.query_one(WinnerMessage).hide()
+        middle = self.cell(self.SIZE // 2, self.SIZE // 2)
+        self.toggle_cells(middle)
+        self.set_focus(middle)
+        self.game_playable(True)
+
+    def action_navigate(self, row: int, col: int) -> None:
+        """Navigate to a new cell by the given offsets.
+
+        Args:
+            row (int): The row of the cell to navigate to.
+            col (int): The column of the cell to navigate to.
+        """
+        if isinstance(self.focused, GameCell):
+            self.set_focus(
+                self.cell(
+                    (self.focused.row + row) % self.SIZE,
+                    (self.focused.col + col) % self.SIZE,
+                )
+            )
+
+    def action_move(self) -> None:
+        """Make a move on the current cell."""
+        if isinstance(self.focused, GameCell):
+            self.focused.press()
+
+    def on_mount(self) -> None:
+        """Get the game started when we first mount."""
+        self.action_new_game()
+
+
+class FiveByFive(App[None]):
+    """Main 5x5 application class."""
+
+    CSS_PATH = "five_by_five.tcss"
+    """The name of the stylesheet for the app."""
+
+    SCREENS = {"help": Help}
+    """The pre-loaded screens for the application."""
+
+    BINDINGS = [("ctrl+d", "toggle_dark", "Toggle Dark Mode")]
+    """App-level bindings."""
+
+    TITLE = "5x5 -- A little annoying puzzle"
+    """The title of the application."""
+
+    def on_mount(self) -> None:
+        """Set up the application on startup."""
+        self.push_screen(Game())
 
 
 if __name__ == "__main__":
-    main()
+    FiveByFive().run()
