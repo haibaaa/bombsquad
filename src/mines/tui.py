@@ -1,323 +1,295 @@
-"""Simple version of 5x5, developed for/with Textual."""
+"""Minesweeper TUI using Rich library."""
 
-from __future__ import annotations
+import sys
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.align import Align
+from rich.text import Text
+from rich.layout import Layout
+from game import Minesweeper, CellState, GameStatus
 
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+# Pastel color palette
+COLORS = {
+    "pink": "#ffb3ba",
+    "peach": "#ffdfba",
+    "yellow": "#ffffba",
+    "mint": "#baffc9",
+    "blue": "#bae1ff",
+}
 
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal
-from textual.css.query import DOMQuery
-from textual.reactive import reactive
-from textual.screen import Screen
-from textual.widget import Widget
-from textual.widgets import Button, Footer, Label, Markdown
-
-if TYPE_CHECKING:
-    from typing_extensions import Final
-
-
-class Help(Screen):
-    """The help screen for the application."""
-
-    BINDINGS = [("escape,space,q,question_mark", "app.pop_screen", "Close")]
-    """Bindings for the help screen."""
-
-    def compose(self) -> ComposeResult:
-        """Compose the game's help.
-
-        Returns:
-            ComposeResult: The result of composing the help screen.
-        """
-        yield Markdown(Path(__file__).with_suffix(".md").read_text())
+# Color mapping for numbers (1-8)
+NUMBER_COLORS = {
+    1: COLORS["blue"],
+    2: COLORS["mint"],
+    3: COLORS["peach"],
+    4: COLORS["pink"],
+    5: COLORS["yellow"],
+    6: COLORS["blue"],
+    7: COLORS["mint"],
+    8: COLORS["peach"],
+}
 
 
-class WinnerMessage(Label):
-    """Widget to tell the user they have won."""
+class MinesweeperTUI:
+    """Terminal UI for Minesweeper game."""
 
-    MIN_MOVES: Final = 14
-    """int: The minimum number of moves you can solve the puzzle in."""
-
-    @staticmethod
-    def _plural(value: int) -> str:
-        return "" if value == 1 else "s"
-
-    def show(self, moves: int) -> None:
-        """Show the winner message.
+    def __init__(self, rows: int = 10, cols: int = 10, mines: int = 15) -> None:
+        """Initialize the TUI.
 
         Args:
-            moves (int): The number of moves required to win.
+            rows: Number of rows in the grid
+            cols: Number of columns in the grid
+            mines: Number of mines to place
         """
-        self.update(
-            "W I N N E R !\n\n\n"
-            f"You solved the puzzle in {moves} move{self._plural(moves)}."
-            + (
-                (
-                    f" It is possible to solve the puzzle in {self.MIN_MOVES}, "
-                    f"you were {moves - self.MIN_MOVES} move{self._plural(moves - self.MIN_MOVES)} over."
-                )
-                if moves > self.MIN_MOVES
-                else " Well done! That's the minimum number of moves to solve the puzzle!"
-            )
+        self.game = Minesweeper(rows, cols, mines)
+        self.console = Console()
+        self.cursor_row = 0
+        self.cursor_col = 0
+        self.running = True
+
+    def get_cell_display(self, row: int, col: int, is_cursor: bool = False) -> Text:
+        """Get the display representation of a cell.
+
+        Args:
+            row: Row index
+            col: Column index
+            is_cursor: Whether this is the cursor position
+
+        Returns:
+            Styled Text object for the cell
+        """
+        state = self.game.get_cell_state(row, col)
+
+        # Base symbol
+        if state == CellState.COVERED:
+            symbol = "■"
+            color = COLORS["mint"]
+        elif state == CellState.FLAGGED:
+            symbol = "⚑"
+            color = COLORS["pink"]
+        elif state == CellState.REVEALED_MINE:
+            symbol = "💣"
+            color = COLORS["peach"]
+        elif state == CellState.REVEALED_EMPTY:
+            symbol = " "
+            color = "white"
+        else:  # REVEALED_NUMBER
+            value = self.game.get_cell_value(row, col)
+            symbol = str(value) if value else " "
+            color = NUMBER_COLORS.get(value, "white")
+
+        # Create text with styling
+        text = Text(f" {symbol} ", style=f"bold {color}")
+
+        # Add cursor highlight
+        if is_cursor:
+            text.stylize(f'reverse on {COLORS["yellow"]}')
+
+        return text
+
+    def render_board(self) -> Panel:
+        """Render the game board as a Rich Table.
+
+        Returns:
+            Panel containing the game board
+        """
+        table = Table(
+            show_header=False,
+            show_edge=True,
+            box=None,
+            padding=(0, 0),
+            collapse_padding=False,
+            pad_edge=False,
         )
-        self.add_class("visible")
 
-    def hide(self) -> None:
-        """Hide the winner message."""
-        self.remove_class("visible")
+        # Add columns
+        for _ in range(self.game.cols):
+            table.add_column(justify="center", width=3)
 
+        # Add rows
+        for r in range(self.game.rows):
+            row_cells = []
+            for c in range(self.game.cols):
+                is_cursor = r == self.cursor_row and c == self.cursor_col
+                row_cells.append(self.get_cell_display(r, c, is_cursor))
+            table.add_row(*row_cells)
 
-class GameHeader(Widget):
-    """Header for the game.
+        # Wrap in panel with border
+        return Panel(
+            Align.center(table),
+            border_style=COLORS["blue"],
+            padding=(1, 2),
+        )
 
-    Comprises of the title (``#app-title``), the number of moves ``#moves``
-    and the count of how many cells are turned on (``#progress``).
-    """
-
-    moves = reactive(0)
-    """int: Keep track of how many moves the player has made."""
-
-    filled = reactive(0)
-    """int: Keep track of how many cells are filled."""
-
-    def compose(self) -> ComposeResult:
-        """Compose the game header.
-
-        Returns:
-            ComposeResult: The result of composing the game header.
-        """
-        with Horizontal():
-            yield Label(self.app.title, id="app-title")
-            yield Label(id="moves")
-            yield Label(id="progress")
-
-    def watch_moves(self, moves: int):
-        """Watch the moves reactive and update when it changes.
-
-        Args:
-            moves (int): The number of moves made.
-        """
-        self.query_one("#moves", Label).update(f"Moves: {moves}")
-
-    def watch_filled(self, filled: int):
-        """Watch the on-count reactive and update when it changes.
-
-        Args:
-            filled (int): The number of cells that are currently on.
-        """
-        self.query_one("#progress", Label).update(f"Filled: {filled}")
-
-
-class GameCell(Button):
-    """Individual playable cell in the game."""
-
-    @staticmethod
-    def at(row: int, col: int) -> str:
-        """Get the ID of the cell at the given location.
-
-        Args:
-            row (int): The row of the cell.
-            col (int): The column of the cell.
+    def render_status(self) -> Text:
+        """Render the game status message.
 
         Returns:
-            str: A string ID for the cell.
+            Styled status text
         """
-        return f"cell-{row}-{col}"
+        status = self.game.get_status()
 
-    def __init__(self, row: int, col: int) -> None:
-        """Initialise the game cell.
-
-        Args:
-            row (int): The row of the cell.
-            col (int): The column of the cell.
-        """
-        super().__init__("", id=self.at(row, col))
-        self.row = row
-        self.col = col
-
-
-class GameGrid(Widget):
-    """The main playable grid of game cells."""
-
-    def compose(self) -> ComposeResult:
-        """Compose the game grid.
-
-        Returns:
-            ComposeResult: The result of composing the game grid.
-        """
-        for row in range(Game.SIZE):
-            for col in range(Game.SIZE):
-                yield GameCell(row, col)
-
-
-class Game(Screen):
-    """Main 5x5 game grid screen."""
-
-    SIZE: Final = 5
-    """The size of the game grid. Clue's in the name really."""
-
-    BINDINGS = [
-        Binding("n", "new_game", "New Game"),
-        Binding("question_mark", "app.push_screen('help')", "Help", key_display="?"),
-        Binding("q", "app.quit", "Quit"),
-        Binding("up,w,k", "navigate(-1,0)", "Move Up", False),
-        Binding("down,s,j", "navigate(1,0)", "Move Down", False),
-        Binding("left,a,h", "navigate(0,-1)", "Move Left", False),
-        Binding("right,d,l", "navigate(0,1)", "Move Right", False),
-        Binding("space", "move", "Toggle", False),
-    ]
-    """The bindings for the main game grid."""
-
-    @property
-    def filled_cells(self) -> DOMQuery[GameCell]:
-        """DOMQuery[GameCell]: The collection of cells that are currently turned on."""
-        return cast(DOMQuery[GameCell], self.query("GameCell.filled"))
-
-    @property
-    def filled_count(self) -> int:
-        """int: The number of cells that are currently filled."""
-        return len(self.filled_cells)
-
-    @property
-    def all_filled(self) -> bool:
-        """bool: Are all the cells filled?"""
-        return self.filled_count == self.SIZE * self.SIZE
-
-    def game_playable(self, playable: bool) -> None:
-        """Mark the game as playable, or not.
-
-        Args:
-            playable (bool): Should the game currently be playable?
-        """
-        self.query_one(GameGrid).disabled = not playable
-
-    def cell(self, row: int, col: int) -> GameCell:
-        """Get the cell at a given location.
-
-        Args:
-            row (int): The row of the cell to get.
-            col (int): The column of the cell to get.
-
-        Returns:
-            GameCell: The cell at that location.
-        """
-        return self.query_one(f"#{GameCell.at(row,col)}", GameCell)
-
-    def compose(self) -> ComposeResult:
-        """Compose the game screen.
-
-        Returns:
-            ComposeResult: The result of composing the game screen.
-        """
-        yield GameHeader()
-        yield GameGrid()
-        yield Footer()
-        yield WinnerMessage()
-
-    def toggle_cell(self, row: int, col: int) -> None:
-        """Toggle an individual cell, but only if it's in bounds.
-
-        If the row and column would place the cell out of bounds for the
-        game grid, this function call is a no-op. That is, it's safe to call
-        it with an invalid cell coordinate.
-
-        Args:
-            row (int): The row of the cell to toggle.
-            col (int): The column of the cell to toggle.
-        """
-        if 0 <= row <= (self.SIZE - 1) and 0 <= col <= (self.SIZE - 1):
-            self.cell(row, col).toggle_class("filled")
-
-    _PATTERN: Final = (-1, 1, 0, 0, 0)
-
-    def toggle_cells(self, cell: GameCell) -> None:
-        """Toggle a 5x5 pattern around the given cell.
-
-        Args:
-            cell (GameCell): The cell to toggle the cells around.
-        """
-        for row, col in zip(self._PATTERN, reversed(self._PATTERN)):
-            self.toggle_cell(cell.row + row, cell.col + col)
-        self.query_one(GameHeader).filled = self.filled_count
-
-    def make_move_on(self, cell: GameCell) -> None:
-        """Make a move on the given cell.
-
-        All relevant cells around the given cell are toggled as per the
-        game's rules.
-
-        Args:
-            cell (GameCell): The cell to make a move on
-        """
-        self.toggle_cells(cell)
-        self.query_one(GameHeader).moves += 1
-        if self.all_filled:
-            self.query_one(WinnerMessage).show(self.query_one(GameHeader).moves)
-            self.game_playable(False)
-
-    def on_button_pressed(self, event: GameCell.Pressed) -> None:
-        """React to a press of a button on the game grid.
-
-        Args:
-            event (GameCell.Pressed): The event to react to.
-        """
-        self.make_move_on(cast(GameCell, event.button))
-
-    def action_new_game(self) -> None:
-        """Start a new game."""
-        self.query_one(GameHeader).moves = 0
-        self.filled_cells.remove_class("filled")
-        self.query_one(WinnerMessage).hide()
-        middle = self.cell(self.SIZE // 2, self.SIZE // 2)
-        self.toggle_cells(middle)
-        self.set_focus(middle)
-        self.game_playable(True)
-
-    def action_navigate(self, row: int, col: int) -> None:
-        """Navigate to a new cell by the given offsets.
-
-        Args:
-            row (int): The row of the cell to navigate to.
-            col (int): The column of the cell to navigate to.
-        """
-        if isinstance(self.focused, GameCell):
-            self.set_focus(
-                self.cell(
-                    (self.focused.row + row) % self.SIZE,
-                    (self.focused.col + col) % self.SIZE,
-                )
+        if status == GameStatus.PLAYING:
+            flags_remaining = self.game.mines - sum(
+                sum(row) for row in self.game.flagged
             )
+            msg = f"⚑ Flags: {flags_remaining} | Position: ({self.cursor_row}, {self.cursor_col})"
+            color = COLORS["mint"]
+        elif status == GameStatus.WON:
+            msg = "🎉 YOU WON! Press Q to quit."
+            color = COLORS["mint"]
+        else:  # LOST
+            msg = "💥 GAME OVER! Press Q to quit."
+            color = COLORS["pink"]
 
-    def action_move(self) -> None:
-        """Make a move on the current cell."""
-        if isinstance(self.focused, GameCell):
-            self.focused.press()
+        return Text(msg, style=f"bold {color}", justify="center")
 
-    def on_mount(self) -> None:
-        """Get the game started when we first mount."""
-        self.action_new_game()
+    def render_instructions(self) -> Text:
+        """Render control instructions.
+
+        Returns:
+            Styled instruction text
+        """
+        instructions = Text()
+        instructions.append("Controls: ", style=f'bold {COLORS["blue"]}')
+        instructions.append("[W/A/S/D] Move ", style=COLORS["peach"])
+        instructions.append("[E] Reveal ", style=COLORS["mint"])
+        instructions.append("[F] Flag ", style=COLORS["pink"])
+        instructions.append("[Q] Quit", style=COLORS["yellow"])
+
+        return Align.center(instructions)
+
+    def render_ui(self) -> Layout:
+        """Render the complete UI layout.
+
+        Returns:
+            Complete layout with all UI elements
+        """
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="board"),
+            Layout(name="instructions", size=3),
+        )
+
+        layout["header"].update(Align.center(self.render_status()))
+        layout["board"].update(Align.center(self.render_board()))
+        layout["instructions"].update(self.render_instructions())
+
+        return layout
+
+    def handle_input(self, key: str) -> None:
+        """Handle keyboard input.
+
+        Args:
+            key: The pressed key
+        """
+        # Don't process game moves if game is over
+        if self.game.is_game_over() and key.lower() != "q":
+            return
+
+        # Movement controls
+        if key.lower() == "w":
+            self.cursor_row = max(0, self.cursor_row - 1)
+        elif key.lower() == "s":
+            self.cursor_row = min(self.game.rows - 1, self.cursor_row + 1)
+        elif key.lower() == "a":
+            self.cursor_col = max(0, self.cursor_col - 1)
+        elif key.lower() == "d":
+            self.cursor_col = min(self.game.cols - 1, self.cursor_col + 1)
+
+        # Action controls
+        elif key.lower() == "e":
+            self.game.reveal(self.cursor_row, self.cursor_col)
+        elif key.lower() == "f":
+            self.game.flag(self.cursor_row, self.cursor_col)
+
+        # Quit
+        elif key.lower() == "q":
+            self.running = False
+
+    def run(self) -> None:
+        """Run the main game loop."""
+        try:
+            # Platform-specific input handling
+            if sys.platform == "win32":
+                import msvcrt
+
+                def get_key() -> str | None:
+                    if msvcrt.kbhit():
+                        return msvcrt.getch().decode("utf-8", errors="ignore")
+                    return None
+
+            else:
+                import tty
+                import termios
+                import select
+
+                old_settings = termios.tcgetattr(sys.stdin)
+
+                def get_key() -> str | None:
+                    tty.setcbreak(sys.stdin.fileno())
+                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                        return sys.stdin.read(1)
+                    return None
+
+            with Live(
+                self.render_ui(),
+                console=self.console,
+                refresh_per_second=20,
+                screen=True,
+            ) as live:
+                while self.running:
+                    # Get input
+                    key = get_key()
+                    if key:
+                        self.handle_input(key)
+
+                    # Update display
+                    live.update(self.render_ui())
+
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if sys.platform != "win32":
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            self.console.clear()
 
 
-class FiveByFive(App[None]):
-    """Main 5x5 application class."""
+def main() -> None:
+    """Entry point for the game."""
+    print("Welcome to Minesweeper!")
+    print("=" * 40)
 
-    CSS_PATH = "five_by_five.tcss"
-    """The name of the stylesheet for the app."""
+    # Get game parameters
+    try:
+        rows = int(input("Enter number of rows (default 10): ") or "10")
+        cols = int(input("Enter number of columns (default 10): ") or "10")
+        mines = int(input("Enter number of mines (default 15): ") or "15")
+    except ValueError:
+        print("Invalid input. Using default values (10x10, 15 mines)")
+        rows, cols, mines = 10, 10, 15
 
-    SCREENS = {"help": Help}
-    """The pre-loaded screens for the application."""
+    # Validate inputs
+    if rows < 5 or cols < 5:
+        print("Board too small! Using minimum 5x5")
+        rows, cols = max(5, rows), max(5, cols)
 
-    BINDINGS = [("ctrl+d", "toggle_dark", "Toggle Dark Mode")]
-    """App-level bindings."""
+    if mines >= rows * cols:
+        print("Too many mines! Using maximum safe value")
+        mines = (rows * cols) // 2
 
-    TITLE = "5x5 -- A little annoying puzzle"
-    """The title of the application."""
+    print(f"\nStarting game: {rows}x{cols} board with {mines} mines")
+    print("Loading...\n")
 
-    def on_mount(self) -> None:
-        """Set up the application on startup."""
-        self.push_screen(Game())
+    # Start game
+    tui = MinesweeperTUI(rows, cols, mines)
+    tui.run()
+
+    print("\nThanks for playing!")
 
 
 if __name__ == "__main__":
-    FiveByFive().run()
+    main()
