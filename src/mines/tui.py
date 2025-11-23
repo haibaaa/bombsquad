@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.align import Align
 from rich.text import Text
 from rich.layout import Layout
-from game import Minesweeper, CellState, GameStatus
+from .game import Minesweeper, CellState, GameStatus
 
 # Pastel color palette
 COLORS = {
