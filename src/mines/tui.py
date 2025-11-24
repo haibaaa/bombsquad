@@ -1,6 +1,8 @@
 """Minesweeper TUI using Rich library."""
 
 import sys
+import os
+import time
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -50,16 +52,7 @@ class MinesweeperTUI:
         self.running = True
 
     def get_cell_display(self, row: int, col: int, is_cursor: bool = False) -> Text:
-        """Get the display representation of a cell.
-
-        Args:
-            row: Row index
-            col: Column index
-            is_cursor: Whether this is the cursor position
-
-        Returns:
-            Styled Text object for the cell
-        """
+        """Get the display representation of a cell."""
         state = self.game.get_cell_state(row, col)
 
         # Base symbol
@@ -73,15 +66,15 @@ class MinesweeperTUI:
             symbol = "💣"
             color = COLORS["peach"]
         elif state == CellState.REVEALED_EMPTY:
-            symbol = " "
+            symbol = "·"
             color = "white"
         else:  # REVEALED_NUMBER
             value = self.game.get_cell_value(row, col)
-            symbol = str(value) if value else " "
+            symbol = str(value) if value else "·"
             color = NUMBER_COLORS.get(value, "white")
 
-        # Create text with styling
-        text = Text(f" {symbol} ", style=f"bold {color}")
+        # Create text with styling - reduced spacing
+        text = Text(f"{symbol} ", style=f"bold {color}")
 
         # Add cursor highlight
         if is_cursor:
@@ -89,24 +82,24 @@ class MinesweeperTUI:
 
         return text
 
-    def render_board(self) -> Panel:
+    def render_board(self) -> Table:
         """Render the game board as a Rich Table.
 
         Returns:
-            Panel containing the game board
+            Table containing the game board
         """
         table = Table(
             show_header=False,
-            show_edge=True,
+            show_edge=False,
             box=None,
             padding=(0, 0),
-            collapse_padding=False,
+            collapse_padding=True,
             pad_edge=False,
         )
 
-        # Add columns
+        # Add columns with reduced width
         for _ in range(self.game.cols):
-            table.add_column(justify="center", width=3)
+            table.add_column(justify="center", width=2)
 
         # Add rows
         for r in range(self.game.rows):
@@ -116,12 +109,7 @@ class MinesweeperTUI:
                 row_cells.append(self.get_cell_display(r, c, is_cursor))
             table.add_row(*row_cells)
 
-        # Wrap in panel with border
-        return Panel(
-            Align.center(table),
-            border_style=COLORS["blue"],
-            padding=(1, 2),
-        )
+        return table
 
     def render_status(self) -> Text:
         """Render the game status message.
@@ -138,10 +126,10 @@ class MinesweeperTUI:
             msg = f"⚑ Flags: {flags_remaining} | Position: ({self.cursor_row}, {self.cursor_col})"
             color = COLORS["mint"]
         elif status == GameStatus.WON:
-            msg = "🎉 YOU WON! Press Q to quit."
+            msg = "YOU WON! Press Q to quit."
             color = COLORS["mint"]
         else:  # LOST
-            msg = "💥 GAME OVER! Press Q to quit."
+            msg = "GAME OVER! Press Q to quit."
             color = COLORS["pink"]
 
         return Text(msg, style=f"bold {color}", justify="center")
@@ -153,32 +141,48 @@ class MinesweeperTUI:
             Styled instruction text
         """
         instructions = Text()
-        instructions.append("Controls: ", style=f'bold {COLORS["blue"]}')
-        instructions.append("[W/A/S/D] Move ", style=COLORS["peach"])
-        instructions.append("[E] Reveal ", style=COLORS["mint"])
-        instructions.append("[F] Flag ", style=COLORS["pink"])
-        instructions.append("[Q] Quit", style=COLORS["yellow"])
+        _ = instructions.append("Controls: ", style=f'bold {COLORS["blue"]}')
+        _ = instructions.append("[W/A/S/D] Move ", style=COLORS["peach"])
+        _ = instructions.append("[E] Reveal ", style=COLORS["mint"])
+        _ = instructions.append("[F] Flag ", style=COLORS["pink"])
+        _ = instructions.append("[Q] Quit", style=COLORS["yellow"])
 
         return Align.center(instructions)
 
-    def render_ui(self) -> Layout:
-        """Render the complete UI layout.
+    def render_ui(self) -> Table:
+        """Render the complete UI as a single table.
 
         Returns:
-            Complete layout with all UI elements
+            Complete UI as a table
         """
-        layout = Layout()
-        layout.split_column(
-            Layout(name="header", size=3),
-            Layout(name="board"),
-            Layout(name="instructions", size=3),
+        # Create main container table
+        main_table = Table(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            padding=0,
+            expand=False,
         )
+        main_table.add_column(justify="center")
 
-        layout["header"].update(Align.center(self.render_status()))
-        layout["board"].update(Align.center(self.render_board()))
-        layout["instructions"].update(self.render_instructions())
+        # Add status
+        main_table.add_row(self.render_status())
+        main_table.add_row("")  # Spacer
+        
+        # Add board with panel
+        board_panel = Panel(
+            self.render_board(),
+            border_style=COLORS["blue"],
+            padding=(0, 1),
+            expand=False,
+        )
+        main_table.add_row(board_panel)
+        main_table.add_row("")  # Spacer
+        
+        # Add instructions
+        main_table.add_row(self.render_instructions())
 
-        return layout
+        return main_table
 
     def handle_input(self, key: str) -> None:
         """Handle keyboard input.
@@ -212,8 +216,10 @@ class MinesweeperTUI:
 
     def run(self) -> None:
         """Run the main game loop."""
+        old_settings = None
+        
         try:
-            # Platform-specific input handling
+            # Platform-specific input handling setup
             if sys.platform == "win32":
                 import msvcrt
 
@@ -225,35 +231,50 @@ class MinesweeperTUI:
             else:
                 import tty
                 import termios
-                import select
+                import fcntl
 
+                # Set terminal to raw mode ONCE before the loop
                 old_settings = termios.tcgetattr(sys.stdin)
+                tty.setraw(sys.stdin.fileno())
+                
+                # Set stdin to non-blocking mode
+                flags = fcntl.fcntl(sys.stdin, fcntl.F_GETFL)
+                fcntl.fcntl(sys.stdin, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
                 def get_key() -> str | None:
-                    tty.setcbreak(sys.stdin.fileno())
-                    if select.select([sys.stdin], [], [], 0.05)[0]:
-                        return sys.stdin.read(1)
-                    return None
+                    try:
+                        # Use low-level os.read() for immediate response
+                        key = os.read(sys.stdin.fileno(), 1)
+                        return key.decode("utf-8", errors="ignore")
+                    except (BlockingIOError, OSError):
+                        # No input available
+                        return None
 
             with Live(
-                self.render_ui(),
+                Align.center(self.render_ui()),
                 console=self.console,
-                refresh_per_second=20,
-                screen=True,
+                refresh_per_second=4,
+                screen=False,
+                auto_refresh=False,
             ) as live:
                 while self.running:
-                    # Get input
+                    # Get input (non-blocking)
                     key = get_key()
+                    
                     if key:
                         self.handle_input(key)
-
-                    # Update display
-                    live.update(self.render_ui())
+                        # Update UI only on input to reduce lag
+                        live.update(Align.center(self.render_ui()), refresh=True)
+                    else:
+                        # Sleep briefly when no input to reduce CPU usage
+                        if sys.platform != "win32":
+                            time.sleep(0.01)
 
         except KeyboardInterrupt:
             pass
         finally:
-            if sys.platform != "win32":
+            # Restore terminal settings on Unix-like systems
+            if sys.platform != "win32" and old_settings is not None:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
             self.console.clear()
 
