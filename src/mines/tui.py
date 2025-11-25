@@ -1,4 +1,4 @@
-"""Minesweeper TUI with Solver Panel (Game on Top + Solver Below)."""
+"""Minesweeper TUI with Professional Cell Styling and Refined Borders."""
 
 import sys
 import os
@@ -10,6 +10,7 @@ from rich.table import Table
 from rich.align import Align
 from rich.text import Text
 from rich.layout import Layout
+from rich import box
 
 from .game import Minesweeper, CellState, GameStatus
 
@@ -22,12 +23,14 @@ from .solver.guess import guess_next_move
 
 # Pastel colors
 COLORS = {
+    "lavender": "#dabfde",
+    "red": "#ff6961",
     "pink": "#ffb3ba",
     "peach": "#ffdfba",
     "yellow": "#ffffba",
     "mint": "#baffc9",
     "blue": "#bae1ff",
-    "cyan": "#00ffff",
+    "cyan": "#b7fffa",
 }
 
 NUMBER_COLORS = {
@@ -64,39 +67,84 @@ class MinesweeperTUI:
         self.key_repeat_interval = 0.05  # Interval between repeats
 
     # ------------------------------------------------------
-    # Cell rendering
+    # Cell rendering with professional backgrounds
     # ------------------------------------------------------
     def get_cell_display(self, row: int, col: int, is_cursor: bool = False) -> Text:
+        """
+        Render a cell with professional background styling.
+
+        Background colors represent cell state:
+        - COVERED: Mint (unopened tile aesthetic)
+        - FLAGGED: Pink (flagged indicator)
+        - REVEALED_MINE: Red (danger/warning)
+        - REVEALED_EMPTY: Light neutral (#f5f5f5)
+        - REVEALED_NUMBER: Off-white (#fafafa)
+
+        Foreground colors:
+        - Numbers: COLOR-CODED per NUMBER_COLORS
+        - Flags: Dark red on pink
+        - Mines: Yellow on red
+        - Empty: Subtle gray dot
+
+        Cursor highlighting uses reverse + yellow for visibility over any background.
+        """
         state = self.game.get_cell_state(row, col)
 
+        # Determine symbol and styling based on state
         if state == CellState.COVERED:
-            symbol = "■"
-            color = COLORS["mint"]
+            symbol = " "
+            bg_color = COLORS["mint"]
+            fg_color = None
+            bold = False
+
         elif state == CellState.FLAGGED:
             symbol = "⚑"
-            color = COLORS["pink"]
+            bg_color = COLORS["pink"]
+            fg_color = COLORS["red"]
+            bold = True
+
         elif state == CellState.REVEALED_MINE:
-            symbol = "💣"
-            color = COLORS["peach"]
+            symbol = "☠︎︎"
+            bg_color = COLORS["red"]
+            fg_color = COLORS["yellow"]
+            bold = True
+
         elif state == CellState.REVEALED_EMPTY:
-            symbol = " "
-            color = "white"
-        else:
+            symbol = "·"
+            bg_color = "#f5f5f5"
+            fg_color = "#999999"
+            bold = False
+
+        else:  # REVEALED_NUMBER
             value = self.game.get_cell_value(row, col)
             symbol = str(value) if value else " "
-            color = NUMBER_COLORS.get(value, "white")
+            bg_color = "#fafafa"
+            fg_color = NUMBER_COLORS.get(value, "white")
+            bold = True
 
-        text = Text(f" {symbol} ", style=f"bold {color}")
+        # Build style string
+        style_parts = []
+        if bold:
+            style_parts.append("bold")
+        if fg_color:
+            style_parts.append(fg_color)
+        style_parts.append(f"on {bg_color}")
+        style_str = " ".join(style_parts)
 
+        # Create cell text with background
+        text = Text(f" {symbol} ", style=style_str)
+
+        # Apply cursor highlighting
+        # reverse inverts the cell colors, then yellow background creates bright frame
         if is_cursor:
-            text.stylize(f"reverse on {COLORS['yellow']}")
+            text.stylize(f"reverse bold on {COLORS['yellow']}")
 
         return text
 
     # ------------------------------------------------------
-    # Board rendering with labels
+    # Board rendering with thin cell separators
     # ------------------------------------------------------
-    def render_board(self) -> Panel:
+    def render_board(self) -> Table:  # Change return type from Panel to Table
         table = Table(
             show_header=True,
             box=None,
@@ -106,7 +154,7 @@ class MinesweeperTUI:
         )
 
         # Column labels
-        table.add_column(" ", justify="center", width=2, no_wrap=True)
+        table.add_column(" ", justify="center", width=3, no_wrap=True)
         for c in range(self.game.cols):
             table.add_column(
                 Text(f"{c}", style=f"bold {COLORS['yellow']}"),
@@ -126,12 +174,7 @@ class MinesweeperTUI:
 
             table.add_row(*row_cells)
 
-        return Panel(
-            table,
-            border_style=COLORS["blue"],
-            padding=(0, 1),
-            expand=False,
-        )
+        return table  # Just return table, no Panel wrapper
 
     # ------------------------------------------------------
     # Status
@@ -168,6 +211,15 @@ class MinesweeperTUI:
     # UI layout
     # ------------------------------------------------------
     def render_ui(self):
+        """
+        Render the full UI layout with game (top) and solver (bottom).
+
+        Changes from original:
+        - render_board() now returns bare Table (no Panel wrapper)
+        - Game section displays table without surrounding border
+        - Solver panel retains lavender border for visual hierarchy
+        - Overall effect: cleaner board focus, solver clearly separated
+        """
         layout = Layout()
 
         # Create top section (game)
@@ -181,11 +233,11 @@ class MinesweeperTUI:
         top["board"].update(Align.center(self.render_board()))
         top["instructions"].update(self.render_instructions())
 
-        # Create bottom section (solver)
+        # Create bottom section (solver) - KEEP panel border
         solver_panel = Panel(
             Group(self.solver_text),
             title="solver",
-            border_style=COLORS["cyan"],
+            border_style=COLORS["lavender"],
             padding=(1, 1),
             expand=True,
         )
@@ -250,9 +302,9 @@ class MinesweeperTUI:
             _ = self.solver_text.append(", ".join(safe_coords) + "\n", style="green")
 
         if mines:
-            s_ = elf.solver_text.append("mines: ", style="red")
+            _ = self.solver_text.append("mines: ", style="red")
             mine_coords = [to_coord(r, c) for r, c in mines]
-            s_ = elf.solver_text.append(", ".join(mine_coords) + "\n", style="red")
+            _ = self.solver_text.append(", ".join(mine_coords) + "\n", style="red")
 
         if not safe and not mines:
             _ = self.solver_text.append("no safe moves\n", style="yellow")
@@ -398,16 +450,16 @@ def main():
     console = Console()
     console.clear()
 
-    console.print("[bold cyan]Welcome to Minesweeper with Solver![/bold cyan]")
+    console.print("[bold cyan]Minesweeper[/bold cyan]")
     console.print("=" * 40)
 
     try:
-        rows = int(input("Rows (default 10): ") or "10")
-        cols = int(input("Cols (default 10): ") or "10")
-        mines = int(input("Mines (default 15): ") or "15")
+        rows = int(input("rows (default 10): ") or "10")
+        cols = int(input("cols (default 10): ") or "10")
+        mines = int(input("mines (default 15): ") or "15")
     except ValueError:
         console.print(
-            "[yellow]Invalid input. Using defaults (10x10, 15 mines)[/yellow]"
+            "[yellow]invalid input. using defaults (10x10, 15 mines)[/yellow]"
         )
         rows, cols, mines = 10, 10, 15
 

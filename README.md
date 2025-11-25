@@ -1,11 +1,13 @@
 todo - 
 - [x] game logic
 - [ ] interface
-    - [ ] basic
     - [ ] tui - textual
-    - [ ] gui - pygame
+        - [x] input lag
+        - [ ] cursor dissapears on zero blocks(revealed)
+
 - [ ] solver
-    - [ ] heuristic
-    - [ ] csp
+    - [ ] verify logic
+    - [ ] calc winrate
+    - [ ] heatmap on winrate exec
 - [ ] report
 - [ ] presentation
