@@ -2,7 +2,7 @@
 
 import random
 from enum import Enum
-
+from typing import TypedDict
 
 class CellState(Enum):
     """Represents the visual state of a cell on the board."""
@@ -21,6 +21,18 @@ class GameStatus(Enum):
     WON = 1
     LOST = 2
 
+class CellVisuals(TypedDict):
+    """Both visual state and numeric value for each cell"""
+
+    state: CellState
+    value: int | None # value (0-8, -1:mine) or unrevealed
+
+class BoardState(TypedDict):
+    rows: int
+    cols: int
+    mines: int
+    status: GameStatus
+    cells: list[list[CellVisuals]]
 
 class Minesweeper:
     """Core Minesweeper game logic.
@@ -30,7 +42,7 @@ class Minesweeper:
     zero adjacent mines is revealed.
     """
 
-    def __init__(self, rows: int = 10, cols: int = 10, mines: int = 15) -> None:
+    def __init__(self, rows: int = 10, cols: int = 10, mines: int = 10) -> None:
         """Initialize the game board.
 
         Args:
@@ -56,23 +68,31 @@ class Minesweeper:
         self.first_click: bool = True
 
     def place_mines(self, safe_row: int, safe_col: int) -> None:
-        """Place mines randomly on the board, avoiding the safe cell.
+        """Place mines randomly with smaller safe zone to limit cascading.
 
         Args:
             safe_row: Row index of the first clicked cell (must be mine-free)
             safe_col: Column index of the first clicked cell (must be mine-free)
         """
+        # Create a smaller safe zone - only the clicked cell and immediate neighbors
+        safe_zone = set()
+        safe_zone.add((safe_row, safe_col))
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # Only 4 cardinal directions
+            sr = safe_row + dr
+            sc = safe_col + dc
+            if 0 <= sr < self.rows and 0 <= sc < self.cols:
+                safe_zone.add((sr, sc))
+        
         mines_placed: int = 0
+        
+        # Place all mines randomly - no clustering to avoid large empty zones
         while mines_placed < self.mines:
-            # Generate random coordinates
             r: int = random.randint(0, self.rows - 1)
             c: int = random.randint(0, self.cols - 1)
-            # Skip if cell is the safe cell or already has a mine
-            if (r == safe_row and c == safe_col) or self.board[r][c] == -1:
-                continue
-            # Mark cell as a mine (-1 indicates mine)
-            self.board[r][c] = -1
-            mines_placed += 1
+            if (r, c) not in safe_zone and self.board[r][c] != -1:
+                self.board[r][c] = -1
+                mines_placed += 1
+        
         # Calculate adjacent mine counts for all non-mine cells
         self._calculate_numbers()
 
@@ -260,6 +280,28 @@ class Minesweeper:
         value: int = self.board[row][col]
         # Return None for mines (stored as -1), otherwise return the count
         return value if value != -1 else None
+    
+    def get_mine_encoded_cell_value(self, row: int, col: int) -> int | None:
+        """Get the numeric value of a revealed cell.
+
+        Args:
+            row: Row index of the cell
+            col: Column index of the cell
+
+        Returns:
+            The count of adjacent mines (0-8) for revealed non-mine cells,
+            -1 for revealed mine cells,
+            or None for unrevealed cells
+        """
+        # Validate coordinates
+        if not (0 <= row < self.rows and 0 <= col < self.cols):
+            return None
+        # Only return value for revealed cells
+        if not self.revealed[row][col]:
+            return None
+        
+        # return the count
+        return self.board[row][col]
 
     def get_board_state(self) -> dict[str, object]:
         """Get the complete current state of the board.
@@ -276,6 +318,33 @@ class Minesweeper:
                 # Get both visual state and numeric value for each cell
                 state: CellState = self.get_cell_state(r, c)
                 value: int | None = self.get_cell_value(r, c)
+                row_cells.append({"state": state, "value": value})
+            cells.append(row_cells)
+
+        return {
+            "rows": self.rows,
+            "cols": self.cols,
+            "mines": self.mines,
+            "status": self.status,
+            "cells": cells,
+        }
+
+    def get_board_state_2(self) -> BoardState:
+        """Get the complete current state of the board.
+
+        Returns:
+            Dictionary containing board dimensions, mine count, game status,
+            and a 2D array of cell states and values for rendering
+        """
+        cells: list[list[CellVisuals]] = []
+        # Build 2D array of cell information
+        for r in range(self.rows):
+            row_cells: list[CellVisuals] = []
+
+            for c in range(self.cols):
+                # Get both visual state and numeric value for each cell
+                state: CellState = self.get_cell_state(r, c)
+                value: int | None = self.get_mine_encoded_cell_value(r, c)
                 row_cells.append({"state": state, "value": value})
             cells.append(row_cells)
 
