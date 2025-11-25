@@ -66,7 +66,6 @@ class MinesweeperTUI:
     # Cell rendering
     # ------------------------------------------------------
     def get_cell_display(self, row: int, col: int, is_cursor: bool = False) -> Text:
-        """Get the display representation of a cell."""
         state = self.game.get_cell_state(row, col)
 
         if state == CellState.COVERED:
@@ -79,11 +78,11 @@ class MinesweeperTUI:
             symbol = "💣"
             color = COLORS["peach"]
         elif state == CellState.REVEALED_EMPTY:
-            symbol = "·"
+            symbol = " "
             color = "white"
         else:
             value = self.game.get_cell_value(row, col)
-            symbol = str(value) if value else "·"
+            symbol = str(value) if value else " "
             color = NUMBER_COLORS.get(value, "white")
 
         text = Text(f" {symbol} ", style=f"bold {color}")
@@ -93,12 +92,10 @@ class MinesweeperTUI:
 
         return text
 
+    # ------------------------------------------------------
+    # Board rendering with labels
+    # ------------------------------------------------------
     def render_board(self) -> Panel:
-        """Render the game board as a Rich Table.
-
-        Returns:
-            Table containing the game board
-        """
         table = Table(
             show_header=True,
             box=None,
@@ -146,10 +143,10 @@ class MinesweeperTUI:
             msg = f"⚑ {remaining} | {to_coord(self.cursor_row, self.cursor_col)}"
             color = COLORS["mint"]
         elif status == GameStatus.WON:
-            msg = "YOU WON! Press Q to quit."
+            msg = "🎉 YOU WON!"
             color = COLORS["mint"]
-        else:  # LOST
-            msg = "GAME OVER! Press Q to quit."
+        else:
+            msg = "💥 GAME OVER"
             color = COLORS["pink"]
 
         return Text(msg, style=f"bold {color}", justify="center")
@@ -186,12 +183,11 @@ class MinesweeperTUI:
         # Create bottom section (solver)
         solver_panel = Panel(
             Group(self.solver_text),
-            title="solver",
+            title="🧠 Solver",
             border_style=COLORS["pink"],
             padding=(1, 1),
             expand=True,
         )
-        main_table.add_column(justify="center")
 
         # Split main layout vertically
         layout.split_column(
@@ -199,7 +195,7 @@ class MinesweeperTUI:
             Layout(solver_panel, name="solver", ratio=1),
         )
 
-        return main_table
+        return layout
 
     # ------------------------------------------------------
     # Full solver pipeline in one H press
@@ -236,7 +232,7 @@ class MinesweeperTUI:
 
         # 5) Guessing
         guess_list = guess_next_move(probs)
-        self.solver_text = Text(f"strategy:\n", style="yellow")
+        self.solver_text = Text(f"🤔 Guessing Strategy:\n", style="yellow")
         for cell, p in guess_list[:10]:
             self.solver_text.append(f"• {to_coord(*cell)} = {p*100:.1f}%\n")
         return
@@ -245,7 +241,7 @@ class MinesweeperTUI:
     # Display solver results
     # ------------------------------------------------------
     def show_solver_result(self, strategy, safe, mines):
-        self.solver_text = Text(f"strategy: {strategy}\n", style="cyan")
+        self.solver_text = Text(f"🔎 Strategy: {strategy}\n", style="cyan")
 
         if safe:
             self.solver_text.append("✔ Safe: ", style="green")
@@ -323,8 +319,12 @@ class MinesweeperTUI:
         elif key.lower() == "q":
             self.running = False
 
-    def run(self) -> None:
-        """Run the main game loop."""
+        return True
+
+    # ------------------------------------------------------
+    # Main game loop with optimizations
+    # ------------------------------------------------------
+    def run(self):
         old_settings = None
 
         try:
@@ -340,7 +340,7 @@ class MinesweeperTUI:
             else:
                 import tty
                 import termios
-                import fcntl
+                import select
 
                 # Set terminal to raw mode ONCE before the loop
                 old_settings = termios.tcgetattr(sys.stdin)
@@ -353,7 +353,7 @@ class MinesweeperTUI:
                     return None
 
             with Live(
-                Align.center(self.render_ui()),
+                self.render_ui(),
                 console=self.console,
                 refresh_per_second=10,  # Moderate refresh rate
                 screen=True,  # Use screen mode to prevent stacking
