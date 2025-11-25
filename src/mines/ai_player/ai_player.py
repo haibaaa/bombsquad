@@ -8,10 +8,11 @@ class PlayerAI:
     learning: AILearning | None
 
     # board_status : nxn -> reveal_coord : (n, n)
-    def __init__(self, board: Minesweeper, enable_learning: bool = True):
+    def __init__(self, board: Minesweeper, enable_learning: bool = True, learning_instance: AILearning | None = None):
         self.board = board
         self.enable_learning = enable_learning
-        self.learning = AILearning() if enable_learning else None
+        # Use provided learning instance or create new one
+        self.learning = learning_instance if learning_instance else (AILearning() if enable_learning else None)
         self.expectation = Expectation(self.board, self.learning)
         self.moves_made = 0
         self.last_move_state = None

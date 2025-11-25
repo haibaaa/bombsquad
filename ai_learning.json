@@ -1,17 +1,17 @@
 {
   "stats": {
-    "games_played": 250279,
-    "games_won": 107961,
-    "games_lost": 142318,
-    "total_moves": 2135251,
-    "safe_moves": 1993110,
-    "mine_hits": 142141,
-    "win_rate": 0.4313625993391375
+    "games_played": 275688,
+    "games_won": 122899,
+    "games_lost": 152789,
+    "total_moves": 2924220,
+    "safe_moves": 2771723,
+    "mine_hits": 152497,
+    "win_rate": 0.4457901685963843
   },
   "params": {
     "danger_threshold": 0.7,
     "flag_threshold": 0.85,
     "constraint_weight_factor": 2.0,
-    "risk_tolerance": 0.10404000000000001
+    "risk_tolerance": 0.10612080000000002
   }
 }

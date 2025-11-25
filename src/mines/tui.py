@@ -448,11 +448,12 @@ def main() -> None:
         
         initial_games = learning.stats['games_played']
         initial_wins = learning.stats['games_won']
+        session_wins = 0  # Track wins in this training session
         
         for i in range(iterations):
             # Create new game and AI for each iteration
             game = Minesweeper(rows, cols, mines)
-            ai = PlayerAI(game, enable_learning=True)
+            ai = PlayerAI(game, enable_learning=True, learning_instance=learning)
             
             # Play until game ends
             while not game.is_game_over():
@@ -465,21 +466,24 @@ def main() -> None:
                     # No valid moves, game stuck
                     break
             
+            # Check if won before recording
+            won = game.get_status() == GameStatus.WON
+            if won:
+                session_wins += 1
+            
             # Record game outcome
             ai.record_game_end()
             
             # Progress update every 50 games or at end
             if (i + 1) % 50 == 0 or (i + 1) == iterations:
-                current_wins = learning.stats['games_won'] - initial_wins
-                current_rate = current_wins / (i + 1) if (i + 1) > 0 else 0
-                print(f"Progress: {i + 1}/{iterations} games | Wins: {current_wins} | Win Rate: {current_rate:.1%}")
+                current_rate = session_wins / (i + 1) if (i + 1) > 0 else 0
+                print(f"Progress: {i + 1}/{iterations} games | Wins: {session_wins} | Win Rate: {current_rate:.1%}")
         
-        final_wins = learning.stats['games_won'] - initial_wins
-        final_rate = final_wins / iterations if iterations > 0 else 0
+        final_rate = session_wins / iterations if iterations > 0 else 0
         
         print(f"\n✅ Training Complete!")
         print(f"Games Played: {iterations}")
-        print(f"Wins: {final_wins}")
+        print(f"Wins: {session_wins}")
         print(f"Win Rate: {final_rate:.1%}")
         print(f"\nOverall Statistics:")
         print(learning.get_stats_display())
@@ -515,7 +519,7 @@ def main() -> None:
             # Train one batch
             for i in range(batch_size):
                 game = Minesweeper(rows, cols, mines)
-                ai = PlayerAI(game, enable_learning=True)
+                ai = PlayerAI(game, enable_learning=True, learning_instance=learning)
                 
                 # Play until game ends
                 moves = 0
