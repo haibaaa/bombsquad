@@ -27,6 +27,7 @@ COLORS = {
     "yellow": "#ffffba",
     "mint": "#baffc9",
     "blue": "#bae1ff",
+    "cyan": "#00ffff",
 }
 
 NUMBER_COLORS = {
@@ -143,10 +144,10 @@ class MinesweeperTUI:
             msg = f"⚑ {remaining} | {to_coord(self.cursor_row, self.cursor_col)}"
             color = COLORS["mint"]
         elif status == GameStatus.WON:
-            msg = "🎉 YOU WON!"
+            msg = "you win"
             color = COLORS["mint"]
         else:
-            msg = "💥 GAME OVER"
+            msg = "you lose"
             color = COLORS["pink"]
 
         return Text(msg, style=f"bold {color}", justify="center")
@@ -183,8 +184,8 @@ class MinesweeperTUI:
         # Create bottom section (solver)
         solver_panel = Panel(
             Group(self.solver_text),
-            title="🧠 Solver",
-            border_style=COLORS["pink"],
+            title="solver",
+            border_style=COLORS["cyan"],
             padding=(1, 1),
             expand=True,
         )
@@ -232,7 +233,7 @@ class MinesweeperTUI:
 
         # 5) Guessing
         guess_list = guess_next_move(probs)
-        self.solver_text = Text(f"🤔 Guessing Strategy:\n", style="yellow")
+        self.solver_text = Text(f"strategy:\n", style="yellow")
         for cell, p in guess_list[:10]:
             self.solver_text.append(f"• {to_coord(*cell)} = {p*100:.1f}%\n")
         return
@@ -241,22 +242,20 @@ class MinesweeperTUI:
     # Display solver results
     # ------------------------------------------------------
     def show_solver_result(self, strategy, safe, mines):
-        self.solver_text = Text(f"🔎 Strategy: {strategy}\n", style="cyan")
+        self.solver_text = Text(f"strategy: {strategy}\n", style="cyan")
 
         if safe:
-            self.solver_text.append("✔ Safe: ", style="green")
+            _ = self.solver_text.append("safe: ", style="green")
             safe_coords = [to_coord(r, c) for r, c in safe]
-            self.solver_text.append(", ".join(safe_coords) + "\n", style="green")
+            _ = self.solver_text.append(", ".join(safe_coords) + "\n", style="green")
 
         if mines:
-            self.solver_text.append("💣 Mines: ", style="red")
+            s_ = elf.solver_text.append("mines: ", style="red")
             mine_coords = [to_coord(r, c) for r, c in mines]
-            self.solver_text.append(", ".join(mine_coords) + "\n", style="red")
+            s_ = elf.solver_text.append(", ".join(mine_coords) + "\n", style="red")
 
         if not safe and not mines:
-            self.solver_text.append("⚠ No certain moves.\n", style="yellow")
-
-        self.solver_text.append("Press H again after action.", style="dim")
+            _ = self.solver_text.append("no safe moves\n", style="yellow")
 
     # ------------------------------------------------------
     # Input handling with key repeat
@@ -414,23 +413,21 @@ def main():
 
     # Validate inputs
     if rows < 5 or cols < 5:
-        console.print("[yellow]Board too small! Using minimum 5x5[/yellow]")
+        console.print("[yellow]board too small! using minimum 5x5[/yellow]")
         rows, cols = max(5, rows), max(5, cols)
 
     if mines >= rows * cols:
-        console.print("[yellow]Too many mines! Using maximum safe value[/yellow]")
+        console.print("[yellow]too many mines! using maximum safe value[/yellow]")
         mines = (rows * cols) // 2
 
     console.print(
-        f"\n[green]Starting game: {rows}x{cols} board with {mines} mines[/green]"
+        f"\n[green]starting game: {rows}x{cols} board with {mines} mines[/green]"
     )
     console.print("Loading...\n")
     time.sleep(1)
 
     tui = MinesweeperTUI(rows, cols, mines)
     tui.run()
-
-    console.print("\n[cyan]Thanks for playing![/cyan]")
 
 
 if __name__ == "__main__":
