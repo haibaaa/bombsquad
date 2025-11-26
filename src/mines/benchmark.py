@@ -31,6 +31,6 @@ def benchmark(name, rows, cols, mines, games=100):
 
 if __name__ == "__main__":
     # Example runs — adjust game count as you like
-    benchmark("BEGINNER", 9, 9, 10, games=100)
-    benchmark("INTERMEDIATE", 16, 16, 40, games=100)
-    benchmark("EXPERT", 16, 30, 99, games=100)
+    benchmark("BEGINNER", 9, 9, 10, games=1000)
+    benchmark("INTERMEDIATE", 16, 16, 40, games=1000)
+    benchmark("EXPERT", 16, 30, 99, games=1000)
